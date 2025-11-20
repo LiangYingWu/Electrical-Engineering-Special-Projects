@@ -24,8 +24,8 @@ def processData(data, gps0, gps_error=(0,0)):
 
     x, y = latlngToXY(lat, lng, gps0[0], gps0[1])
     data_processed[d[0]] = {
-        "lat": float(d[1]), 
-        "lng": float(d[2]), 
+        "lat": lat, 
+        "lng": lng, 
         "x": x, 
         "y": y
     }
