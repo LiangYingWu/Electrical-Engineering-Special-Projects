@@ -1,9 +1,12 @@
 import numpy as np
 import serial
 from pyproj import Proj, Transformer
+import socket
+import time
 
 lat0 = 25.0102477
 lng0 = 121.5399238
+base_station_gps = (25.011933, 121.541187)
 
 path = path = [
     [
@@ -175,6 +178,12 @@ path = np.array(path)
 
 ser_readA = serial.Serial('COM6', 9600, timeout=1)
 
+ARDUINO_UDP_PORT = 4210
+
+# ===== UDP socket for Arduino (receive) =====
+sock_arduino = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock_arduino.bind(("0.0.0.0", ARDUINO_UDP_PORT))
+
 def serial_arduino():
     global ser_readA
     try:
@@ -185,6 +194,13 @@ def serial_arduino():
         print("Error reading serial port A data: ", e)
 
     return serial_data
+
+def wifi_arduino():
+    arduino_data, _ = sock_arduino.recvfrom(1024)
+    arduino_data = arduino_data.decode('utf-8', errors='ignore').strip().split(",")
+    arduino_data = [float(i) for i in arduino_data]
+    
+    return arduino_data
 
 def latlngToXY(lat, lng, lat0, lng0):
     # print("Converting lat/lng to x/y:", lat, lng)
@@ -223,6 +239,7 @@ def purePursuit(position, yaw, target_path, lookahead_dist, wheelbase):
     
     # 找到最近點的索引
     nearest_idx = np.argmin(distances)
+    nearest_point = target_path[nearest_idx]
     
     # 2. 尋找目標點 (Find Goal Point)
     target_idx = -1
@@ -268,14 +285,16 @@ def purePursuit(position, yaw, target_path, lookahead_dist, wheelbase):
     # atan2 可以處理 alpha=0 的情況
     delta = np.arctan2(2.0 * wheelbase * np.sin(alpha), lookahead_dist)
     
-    return delta, target_point, nearest_idx
+    return delta, alpha, nearest_idx, nearest_point, target_idx, target_point
 
 if __name__ == "__main__":
     while True:
         serial_data = serial_arduino()
         if serial_data:
-            print(f"serial_arduino: {serial_data}")
-            gps_position = (serial_data[0], serial_data[1])
+            wifi_gps_data = wifi_arduino()
+            gps_error = (wifi_gps_data[0] - base_station_gps[0], wifi_gps_data[1] - base_station_gps[1])
+            
+            gps_position = (serial_data[0] - gps_error[0], serial_data[1] - gps_error[1])
             gps_position_xy = latlngToXY(
                 lat=gps_position[0], 
                 lng=gps_position[1], 
@@ -284,7 +303,7 @@ if __name__ == "__main__":
             )
             yaw = serial_data[2]
 
-            delta, target_point, nearest_idx = purePursuit(
+            delta, alpha, nearest_idx, nearest_point, target_idx, target_point = purePursuit(
                 position=gps_position_xy,
                 yaw=np.radians(yaw),
                 target_path=path,
@@ -294,6 +313,10 @@ if __name__ == "__main__":
             delta_deg = np.degrees(delta)
 
             print("--------------------------------------------------")
+            print(f"serial_arduino: {serial_data}")
+            print(f"wifi_arduino: {wifi_gps_data}")
+            print(f"gps_error: {gps_error}")
+            print()
             print("GPS Position:", gps_position, "GPS Position (x, y):", gps_position, "Yaw (deg):", yaw)
             print(f"Pure Pursuit => nearest_idx: {nearest_idx}")
             print(f"                target_point: {target_point}")
