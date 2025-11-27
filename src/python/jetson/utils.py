@@ -1,15 +1,36 @@
 import math
+from pyproj import Proj, Transformer
+
+# def latlngToXY(lat, lng, lat0, lng0):
+#     deg_to_rad = math.pi / 180.0
+#     dlat = (lat - lat0) * deg_to_rad
+#     dlng = (lng - lng0) * deg_to_rad
+
+#     r = 6378137.0
+#     x = dlng * r * math.cos(lat0 * deg_to_rad)
+#     y = dlat * r
+
+#     return round(x, 10), round(y, 10)
 
 def latlngToXY(lat, lng, lat0, lng0):
-    deg_to_rad = math.pi / 180.0
-    dlat = (lat - lat0) * deg_to_rad
-    dlng = (lng - lng0) * deg_to_rad
+    # print("Converting lat/lng to x/y:", lat, lng)
+    
+    proj_wgs84 = Proj("epsg:4326")
 
-    r = 6378137.0
-    x = dlng * r * math.cos(lat0 * deg_to_rad)
-    y = dlat * r
+    proj_local = Proj(
+        proj='aeqd', 
+        ellps='WGS84', 
+        datum='WGS84', 
+        lat_0=lat0, 
+        lon_0=lng0
+    )
+    
+    transformer = Transformer.from_proj(proj_wgs84, proj_local)
+    x_coords, y_coords = transformer.transform(lat, lng)
 
-    return round(x, 10), round(y, 10)
+    # print("x_coords:", x_coords, "y_coords:", y_coords)
+
+    return round(x_coords, 10), round(y_coords, 10)
 
 def processData(data, gps0, gps_error=(0,0)):
     # print("data", data)

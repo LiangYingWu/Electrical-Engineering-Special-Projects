@@ -4,13 +4,14 @@ import math
 import numpy as np
 
 from wifi import start_stream, update_json, get_arduino_data
-from pid import pidControl, findLookaheadPoint, purePursuit
+from pid import pidControl, purePursuit
 from utils import processData
 import serial_utils
 from plot_utils import updatePlot
 
-lat0, lng0 = 25.011029, 121.539077
-base_station_gps = (25.01199081, 121.54119676)
+lat0 = 25.0102477
+lng0 = 121.5399238
+base_station_gps = (25.011933, 121.541187)
 
 target_speed = 30.0
 stop_moving = False
@@ -19,168 +20,168 @@ no_sensor_data = False
 
 path = [
     [
-        259.263,
-        136.923
+        173.94,
+        222.799
     ],
     [
-        255.833,
-        140.597
+        170.508,
+        226.454
     ],
     [
-        252.303,
-        144.27
+        166.975,
+        230.11
     ],
     [
-        248.873,
-        147.944
+        163.543,
+        233.765
     ],
     [
-        245.342,
-        151.617
+        160.01,
+        237.421
     ],
     [
-        241.912,
-        155.291
+        156.578,
+        241.076
     ],
     [
-        238.482,
-        158.964
+        153.146,
+        244.732
     ],
     [
-        234.951,
-        162.638
+        149.613,
+        248.387
     ],
     [
-        231.521,
-        166.423
+        146.181,
+        252.153
     ],
     [
-        227.99,
-        170.096
+        142.648,
+        255.809
     ],
     [
-        224.56,
-        173.77
+        139.216,
+        259.464
     ],
     [
-        221.03,
-        177.443
+        135.683,
+        263.12
     ],
     [
-        217.6,
-        181.117
+        132.251,
+        266.775
     ],
     [
-        214.069,
-        184.79
+        128.718,
+        270.431
     ],
     [
-        210.639,
-        188.464
+        125.286,
+        274.086
     ],
     [
-        207.108,
-        192.137
+        121.753,
+        277.742
     ],
     [
-        203.678,
-        195.922
+        118.321,
+        281.508
     ],
     [
-        200.248,
-        199.596
+        114.889,
+        285.164
     ],
     [
-        196.717,
-        203.269
+        111.357,
+        288.819
     ],
     [
-        193.287,
-        206.943
+        107.925,
+        292.475
     ],
     [
-        189.757,
-        210.616
+        104.392,
+        296.13
     ],
     [
-        193.388,
-        214.067
+        108.025,
+        299.564
     ],
     [
-        197.02,
-        217.518
+        111.659,
+        302.998
     ],
     [
-        200.753,
-        221.081
+        115.394,
+        306.543
     ],
     [
-        204.384,
-        224.531
+        119.028,
+        309.977
     ],
     [
-        208.016,
-        227.982
+        122.662,
+        313.411
     ],
     [
-        211.648,
-        231.433
+        126.295,
+        316.845
     ],
     [
-        215.279,
-        234.884
+        129.929,
+        320.279
     ],
     [
-        218.911,
-        238.335
+        133.563,
+        323.713
     ],
     [
-        222.543,
-        241.897
+        137.197,
+        327.258
     ],
     [
-        226.174,
-        245.348
+        140.83,
+        330.692
     ],
     [
-        229.907,
-        248.799
+        144.565,
+        334.126
     ],
     [
-        233.539,
-        252.25
+        148.199,
+        337.56
     ],
     [
-        237.17,
-        255.701
+        151.833,
+        340.994
     ],
     [
-        233.539,
-        259.486
+        148.199,
+        344.76
     ],
     [
-        230.008,
-        263.271
+        144.666,
+        348.526
     ],
     [
-        226.477,
-        267.055
+        141.133,
+        352.292
     ],
     [
-        222.845,
-        270.84
+        137.499,
+        356.059
     ],
     [
-        219.315,
-        274.625
+        133.966,
+        359.825
     ],
     [
-        215.784,
-        278.41
+        130.433,
+        363.591
     ],
     [
-        212.152,
-        282.306
+        126.8,
+        367.468
     ]
 ]
 path = np.array(path)
@@ -303,22 +304,26 @@ def main():
                         pid_output = pidControl(target_speed=target_speed, current_speed=data_processed["hall"]["rps_avg"])
 
                         # Pure Pursuit
-                        last_index, (tx, ty) = findLookaheadPoint(
-                            path=path, 
-                            position=(data_processed["gps"]["x"], data_processed["gps"]["y"]), 
-                            lookahead_dist=lookahead_dist, 
-                            last_index=last_index
-                        )
-                        ec_output = purePursuit(
+                        # last_index, (tx, ty) = findLookaheadPoint(
+                        #     path=path, 
+                        #     position=(data_processed["gps"]["x"], data_processed["gps"]["y"]), 
+                        #     lookahead_dist=lookahead_dist, 
+                        #     last_index=last_index
+                        # )
+                        purePursuit_output = purePursuit(
                             position=(data_processed["gps"]["x"], data_processed["gps"]["y"]), 
                             yaw=math.radians(data_processed["campass"]["degree"]),
-                            lookahead_point=(tx, ty), 
+                            # lookahead_point=(tx, ty), 
                             lookahead_dist=lookahead_dist, 
                             wheelbase=wheelbase
                         )
-                        delta, alpha = ec_output
+                        delta, alpha, nearest_idx, nearest_point, target_idx, target_point = purePursuit_output
                         delta_deg = math.degrees(delta)
+                        alpha_deg = math.degrees(alpha)
 
+                        print(f"Nearest Point: {nearest_idx}, {nearest_point}")
+                        print(f"Target Point: {target_idx}, {target_point}")
+                        print(f"Delta (deg): {delta_deg:.2f}, Alpha (deg): {alpha_deg:.2f}")
                         print(f"Get Command => pid: {int(pid_output)}, ec: {int(delta_deg)}")
                         
                         # pid_output = 0
