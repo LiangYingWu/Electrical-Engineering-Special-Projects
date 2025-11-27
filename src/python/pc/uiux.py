@@ -10,6 +10,8 @@ from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import QUrl, pyqtSlot, QObject, QTimer, Qt, QThread, pyqtSignal
 from PyQt5.QtWebChannel import QWebChannel
 
+from pyproj import Proj, Transformer
+
 import osmnx as ox
 import networkx as nx
 import math
@@ -169,8 +171,8 @@ class VideoWidget(QWidget):
         QApplication.processEvents()
 
         if self.cap is None:
-            # self.cap = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
-            self.cap = cv2.VideoCapture("C:/Users/LiangYingWu/Downloads/car.mp4")
+            self.cap = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
+            # self.cap = cv2.VideoCapture("C:/Users/LiangYingWu/Downloads/car.mp4")
             if not self.cap.isOpened():
                 self.label.setText("無法連線到影像串流")
                 self.use_camera()
@@ -376,8 +378,8 @@ class MainWindow(QMainWindow):
         sys.stderr = Logger(self.log_widget)
 
         # 初始化地理座標轉換參數
-        self.lat0 = 25.011029
-        self.lng0 = 121.539077
+        self.lat0 = 25.0102477
+        self.lng0 = 121.5399238
         
         # 初始化 OSM 路網 (地圖 API)
         center_point = (25.01335, 121.54057)
@@ -398,17 +400,37 @@ class MainWindow(QMainWindow):
         # self.target_cls = [1]
         self.video_widget.detectedClass.connect(self.on_yolo_detected)
 
-    def latlngToXY(self, lat, lng):
-        deg_to_rad = math.pi / 180.0
-        dlat = (lat - self.lat0) * deg_to_rad
-        dlng = (lng - self.lng0) * deg_to_rad
+    # def latlngToXY(self, lat, lng):
+    #     deg_to_rad = math.pi / 180.0
+    #     dlat = (lat - self.lat0) * deg_to_rad
+    #     dlng = (lng - self.lng0) * deg_to_rad
 
-        r = 6378137.0  # WGS84
-        x = dlng * r * math.cos(self.lat0 * deg_to_rad)
-        y = dlat * r
+    #     r = 6378137.0  # WGS84
+    #     x = dlng * r * math.cos(self.lat0 * deg_to_rad)
+    #     y = dlat * r
 
-        return x, y
+    #     return x, y
     
+    def latlngToXY(self, lat, lng):
+        print("Converting lat/lng to x/y:", lat, lng)
+        
+        proj_wgs84 = Proj("epsg:4326")
+
+        proj_local = Proj(
+            proj='aeqd', 
+            ellps='WGS84', 
+            datum='WGS84', 
+            lat_0=self.lat0, 
+            lon_0=self.lng0
+        )
+        
+        transformer = Transformer.from_proj(proj_wgs84, proj_local)
+        x_coords, y_coords = transformer.transform(lat, lng)
+
+        print("x_coords:", x_coords, "y_coords:", y_coords)
+
+        return round(x_coords, 10), round(y_coords, 10)
+
     def on_page_load_finished(self):
         if self.bridge.current_route:
             js_code = f"drawInitialRoute({json.dumps(self.bridge.current_route)});"
@@ -574,6 +596,7 @@ class MainWindow(QMainWindow):
 
         delay_points = [[round(float(lat), 6), round(float(lon), 6)] for lat, lon in waypoints]
         
+        print(f"原始路線點數: {len(points)}，計算後路線點數: {len(new_current_route)}，中繼點數: {len(delay_points)}")
         new_current_route_xy = [list(map(lambda v: round(v, 3), self.latlngToXY(lat, lon)))
                                 for lat, lon in new_current_route]
         delay_points_xy = [list(map(lambda v: round(v, 3), self.latlngToXY(lat, lon)))
@@ -592,7 +615,7 @@ class MainWindow(QMainWindow):
             print("尚未設定路線")
 
         # 計算中繼點
-        result = self.calculate_real_route(self.bridge.current_route, step=5)
+        result = self.calculate_real_route(self.bridge.current_route, step=2)
         self.bridge.current_route = result["new_current_route"]
         self.bridge.current_route_relay_point = result["delay_points"]
         self.bridge.current_route_xy  = result["new_current_route_xy"]
