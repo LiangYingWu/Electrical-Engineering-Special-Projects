@@ -4,10 +4,10 @@ import math
 import numpy as np
 
 from wifi import start_stream, update_json, get_arduino_data
-from pid import pidControl, purePursuit
+from pid import pidControl, purePursuit, carPositionIntegration
 from utils import processData
 import serial_utils
-from plot_utils import updatePlot
+# from plot_utils import updatePlot
 
 lat0 = 25.0102477
 lng0 = 121.5399238
@@ -186,7 +186,13 @@ path = [
 ]
 path = np.array(path)
 
-lookahead_dist, wheelbase = 3.0, 1.0
+lookahead_dist = 3.0
+wheelbase = 1.0
+wheel_circumference = 0.802
+
+initial_car_position = (173.94, 222.799)
+current_car_position = initial_car_position
+position_time = None
 
 def main():
     global target_speed, stop_moving, stopping_distance, no_sensor_data, path, lookahead_dist, wheelbase
@@ -195,8 +201,6 @@ def main():
     serial_utils.init_serial(portA='COM6', portB='COM4', baudrate=9600)
 
     serial_utils.start_sensor_thread()
-
-    last_index = 0
 
     b_pressed = [False for _ in range(10)]
     
@@ -260,7 +264,6 @@ def main():
                 print("========== Can not get GPS error message ==========")
             gps_error = [round(float(arduino_data[0]) - base_station_gps[0], 10), 
                          round(float(arduino_data[1]) - base_station_gps[1], 10)]
-            # print(gps_error)
 
             # Get Sensor Data
             data_processed = processData(serial_utils.sensor_data, (lat0, lng0), gps_error)
@@ -274,7 +277,8 @@ def main():
                     print("========== Ingnore Abnormal RPS: ", data_processed["hall"]["rps_avg"], "==========")
                     continue
                 
-                updatePlot(data_processed["hall"]["rps_avg"])
+                # updatePlot(data_processed["hall"]["rps_avg"])
+                print("========== Sensor Data ==========")
                 for outer_key, inner_dict in data_processed.items():
                     print("    ", outer_key, end=": \n")
                     for key, value in inner_dict.items():
@@ -300,21 +304,31 @@ def main():
 
                 if not stop_moving:
                     if mode == "1":
-                        # PID Control
-                        pid_output = pidControl(target_speed=target_speed, current_speed=data_processed["hall"]["rps_avg"])
+                        # Update Car Position
+                        position_time_now = time.time()
+                        dt = position_time_now - position_time
+                        current_car_position = carPositionIntegration(
+                            prev_xy=current_car_position, 
+                            yaw=data_processed["campass"]["degree"], 
+                            rps=data_processed["hall"]["rps_avg"], 
+                            wheel_circumference=wheel_circumference, 
+                            dt=dt
+                        )
+                        position_time = position_time_now
 
-                        # Pure Pursuit
-                        # last_index, (tx, ty) = findLookaheadPoint(
-                        #     path=path, 
-                        #     position=(data_processed["gps"]["x"], data_processed["gps"]["y"]), 
-                        #     lookahead_dist=lookahead_dist, 
-                        #     last_index=last_index
-                        # )
+                        # PID Control
+                        pid_output = pidControl(
+                            target_speed=target_speed,
+                            current_speed=data_processed["hall"]["rps_avg"]
+                        )
+
+                        # Pure Pursuit Control
                         purePursuit_output = purePursuit(
-                            position=(data_processed["gps"]["x"], data_processed["gps"]["y"]), 
+                            # position=(data_processed["gps"]["x"], data_processed["gps"]["y"]),
+                            position=current_car_position,
                             yaw=math.radians(data_processed["campass"]["degree"]),
-                            # lookahead_point=(tx, ty), 
-                            lookahead_dist=lookahead_dist, 
+                            target_path=path,
+                            lookahead_dist=lookahead_dist,
                             wheelbase=wheelbase
                         )
                         delta, alpha, nearest_idx, nearest_point, target_idx, target_point = purePursuit_output
@@ -325,9 +339,6 @@ def main():
                         print(f"Target Point: {target_idx}, {target_point}")
                         print(f"Delta (deg): {delta_deg:.2f}, Alpha (deg): {alpha_deg:.2f}")
                         print(f"Get Command => pid: {int(pid_output)}, ec: {int(delta_deg)}")
-                        
-                        # pid_output = 0
-                        # delta_deg = 0
                         
                         # Send Command to Arduino
                         serial_utils.send_command("pid," + str(int(pid_output)) + ",ec," + str(int(delta_deg)))
@@ -350,4 +361,5 @@ def main():
     print("========== ALL STOP ==========")
 
 if __name__ == "__main__":
+    position_time = time.time()
     main()
