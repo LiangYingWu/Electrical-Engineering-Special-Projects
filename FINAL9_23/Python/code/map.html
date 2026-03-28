@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>互動地圖</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+</head>
+<body>
+  <div id="map" style="width: 100%; height: 100vh;"></div>
+
+  <script>
+    var map = L.map('map').setView([25.01335, 121.54057], 18);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 20,
+    }).addTo(map);
+
+    var bridge = null;
+    var routeLine = null;
+    var routeMarkers = [];
+    var planningMode = false;
+
+    new QWebChannel(qt.webChannelTransport, function(channel) {
+        bridge = channel.objects.bridge;
+    });
+
+    function drawInitialRoute(route) {
+        clearRoute();
+        route.forEach(pt => addRouteNode(pt[0], pt[1], false));
+        redrawRoute();
+    }
+
+    function clearRoute() {
+        if (routeLine) map.removeLayer(routeLine);
+        routeMarkers.forEach(m => { if(m) map.removeLayer(m); });
+        routeMarkers = [];
+    }
+
+    function createNumberIcon(number) {
+        return L.divIcon({
+            className: 'number-marker',
+            iconSize: [25, 25],
+            iconAnchor: [12, 12],
+            html: `<div style="
+                background-color: black;
+                color: white;
+                width: 25px;
+                height: 25px;
+                text-align: center;
+                line-height: 25px;
+                border-radius: 50%;
+                font-weight: bold;
+            ">${number}</div>`
+        });
+    }
+
+    function addRouteNode(lat, lng, notify=true) {
+        var marker = L.marker([lat, lng], {draggable: planningMode}).addTo(map);
+
+        // 拖動節點時呼叫 Python 的 nodeMoved 函數
+        marker.on('dragend', function() { 
+            redrawRoute();
+            if (bridge && bridge.nodeMoved) {
+                var index = routeMarkers.indexOf(marker);
+                bridge.nodeMoved(index, marker.getLatLng().lat, marker.getLatLng().lng);
+            }
+        });
+
+        marker.on('click', function() {
+            if (planningMode) {
+                var index = routeMarkers.indexOf(marker);
+                map.removeLayer(marker);
+                routeMarkers.splice(index, 1);
+                redrawRoute();
+                if (bridge) bridge.deleteNode(index); // 刪除時呼叫 Python
+            }
+        });
+
+        routeMarkers.push(marker);
+        redrawRoute();
+
+        if (notify && bridge) bridge.receiveCoords(lat, lng); // 新增節點時呼叫 Python
+    }
+
+    function redrawRoute() {
+        var latlngs = routeMarkers.map(m => m.getLatLng());
+        if (routeLine) map.removeLayer(routeLine);
+        if (latlngs.length > 1) {
+            routeLine = L.polyline(latlngs, {color:'blue'}).addTo(map);
+        }
+
+        routeMarkers.forEach((m, idx) => {
+            m.setIcon(createNumberIcon(idx+1));
+        });
+    }
+
+    map.on('click', function(e) {
+        if (planningMode) addRouteNode(e.latlng.lat, e.latlng.lng);
+    });
+
+    function enableRoutePlanning() {
+        planningMode = true;
+        routeMarkers.forEach(m => m.dragging.enable());
+    }
+
+    function disableRoutePlanning() {
+        planningMode = false;
+        routeMarkers.forEach(m => m.dragging.disable());
+
+        if (bridge) {
+            var coords = routeMarkers.map(m => [m.getLatLng().lat, m.getLatLng().lng]);
+            bridge.updateRoute(coords); // 退出規劃模式一次性更新完整路線
+        }
+    }
+
+    window.drawInitialRoute = drawInitialRoute;
+    window.clearRoute = clearRoute;
+    window.enableRoutePlanning = enableRoutePlanning;
+    window.disableRoutePlanning = disableRoutePlanning;
+  </script>
+</body>
+</html>
